@@ -1,0 +1,62 @@
+---
+- name: Gather project VPC details
+  ec2_vpc_net_facts:
+    profile: "{{ profile }}"
+    region: "{{ region }}"
+    filters:
+      "tag:Name": "{{ stack }}-vpc-{{ mode }}"
+  register: vpc
+
+- name: Create cross account VPC peering Connection
+  ec2_vpc_peer:
+    profile: "{{ profile }}"
+    region: "{{ region }}"
+    vpc_id: "{{ vpc.vpcs[0].id }}"
+    peer_vpc_id: "{{ peer_vpc_id }}"
+    peer_owner_id: "{{ peer_owner_id }}"
+    state: present
+  register: vpc_peer
+  tags: vpc-peering-request
+
+- name: Accept peering connection from remote account
+  ec2_vpc_peer:
+    region: "{{ region }}"
+    peering_id: "{{ vpc_peer.peering_id }}"
+    profile: "{{ mgmt_profile }}"
+    state: accept
+  register: vpc_peer
+  tags: vpc-peering-accept
+
+- name: Gather project route table details
+  ec2_vpc_route_table_facts:
+    profile: "{{ profile }}"
+    region: "{{ region }}"
+    filters:
+      vpc-id: "{{ vpc.vpcs[0].id }}"
+      "tag:Stack": "{{ stack }}"
+      "tag:Mode": "{{ mode }}"
+  register: route_tables
+  tags: vpc-peering-accept
+
+- name: Create routes dict
+  set_fact: 
+    args:
+      routes:
+        dest: '{{ item.destination_cidr_block }}'
+        gateway_id:  '{{ item.gateway_id }}'
+  with_items:
+    - "{{ route_tables.route_tables[0].routes }}"
+  tags: vpc-peering-accept
+
+- name: Add VPC Peering route
+  ec2_vpc_route_table:
+    profile: "{{ profile }}"
+    region: "{{ region }}"
+    vpc_id: "{{ vpc.vpcs[0].id }}"
+    route_table_id: "{{ item.id }}"
+    routes:
+      - dest: "{{ mgmt_net }}"
+        vpc_peering_connection_id: "{{ vpc_peer.peering_id }}"
+  with_items:
+    - route_tables.route_tables[0].routes
+  tags: vpc-peering-accept
