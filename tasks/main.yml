@@ -6,6 +6,9 @@
     filters:
       "tag:Name": "{{ stack }}-vpc-{{ mode }}"
   register: vpc
+  tags: 
+    - vpc-peering-request
+    - vpc-peering-accept
 
 - name: Create cross account VPC peering Connection
   ec2_vpc_peer:
